@@ -94,7 +94,7 @@ final class Updater: ObservableObject {
         var req = URLRequest(url: url)
         req.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
         req.setValue("BlogManager/\(Self.currentVersion)", forHTTPHeaderField: "User-Agent")
-        let (data, resp) = try await URLSession.shared.data(for: req)
+        let (data, resp) = try await Self.dataTask(for: req)
         guard let http = resp as? HTTPURLResponse, http.statusCode == 200 else {
             let code = (resp as? HTTPURLResponse)?.statusCode ?? -1
             throw UpdaterError("GitHub returned HTTP \(code)")
@@ -174,15 +174,55 @@ final class Updater: ObservableObject {
     private func downloadZip(from url: URL) async throws -> URL {
         var req = URLRequest(url: url)
         req.setValue("BlogManager/\(Self.currentVersion)", forHTTPHeaderField: "User-Agent")
-        let (tempURL, response) = try await URLSession.shared.download(for: req)
+        let (stableURL, response) = try await Self.downloadTask(for: req)
         if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
             throw UpdaterError("Download failed: HTTP \(http.statusCode)")
         }
-        // Move to a stable location (URLSession cleans up temp on session end).
-        let dest = FileManager.default.temporaryDirectory
-            .appendingPathComponent("BlogManagerUpdate-\(UUID().uuidString).zip")
-        try FileManager.default.moveItem(at: tempURL, to: dest)
-        return dest
+        return stableURL
+    }
+
+    /// macOS 11 doesn't have the async `URLSession.data(for:)` or `download(for:)`
+    /// APIs, so wrap the completion-handler forms.
+    private static func dataTask(for request: URLRequest) async throws -> (Data, URLResponse) {
+        try await withCheckedThrowingContinuation { cont in
+            let task = URLSession.shared.dataTask(with: request) { data, resp, err in
+                if let err = err {
+                    cont.resume(throwing: err)
+                } else if let data = data, let resp = resp {
+                    cont.resume(returning: (data, resp))
+                } else {
+                    cont.resume(throwing: UpdaterError("empty HTTP response"))
+                }
+            }
+            task.resume()
+        }
+    }
+
+    /// Runs a download and moves the temp file to a stable location inside the
+    /// completion closure (URLSession deletes the original when the closure
+    /// returns, so moving after resume would race).
+    private static func downloadTask(for request: URLRequest) async throws -> (URL, URLResponse) {
+        try await withCheckedThrowingContinuation { cont in
+            let task = URLSession.shared.downloadTask(with: request) { tempURL, resp, err in
+                if let err = err {
+                    cont.resume(throwing: err)
+                    return
+                }
+                guard let tempURL = tempURL, let resp = resp else {
+                    cont.resume(throwing: UpdaterError("empty download response"))
+                    return
+                }
+                let stable = FileManager.default.temporaryDirectory
+                    .appendingPathComponent("BlogManagerUpdate-\(UUID().uuidString).zip")
+                do {
+                    try FileManager.default.moveItem(at: tempURL, to: stable)
+                    cont.resume(returning: (stable, resp))
+                } catch {
+                    cont.resume(throwing: error)
+                }
+            }
+            task.resume()
+        }
     }
 
     private static func performSwap(zipURL: URL, destAppURL: URL) async throws {
@@ -299,13 +339,13 @@ struct UpdateSheetView: View {
         HStack(spacing: 10) {
             Image(systemName: "arrow.down.circle")
                 .font(.title)
-                .foregroundStyle(.tint)
+                .foregroundColor(.accentColor)
             VStack(alignment: .leading, spacing: 2) {
                 Text("Software Update")
                     .font(.headline)
                 Text("Current version: \(Updater.currentVersion)")
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundColor(.secondary)
             }
         }
     }
@@ -325,22 +365,16 @@ struct UpdateSheetView: View {
                 Text("Version \(info.latestVersion) is available.")
                     .font(.body.weight(.semibold))
                 if !info.notes.isEmpty {
-                    ScrollView {
-                        Text(info.notes)
-                            .font(.system(.body, design: .default))
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .textSelection(.enabled)
-                    }
-                    .frame(maxHeight: 160)
-                    .padding(8)
-                    .background(
-                        RoundedRectangle(cornerRadius: 6)
-                            .fill(Color(nsColor: .textBackgroundColor))
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 6)
-                            .strokeBorder(Color.secondary.opacity(0.3))
-                    )
+                    SelectableText(text: info.notes)
+                        .frame(maxHeight: 160)
+                        .background(
+                            RoundedRectangle(cornerRadius: 6)
+                                .fill(Color(NSColor.textBackgroundColor))
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 6)
+                                .strokeBorder(Color.secondary.opacity(0.3))
+                        )
                 }
             }
         case .downloading:
@@ -356,11 +390,9 @@ struct UpdateSheetView: View {
         case .error(let msg):
             VStack(alignment: .leading, spacing: 6) {
                 Label("Update failed", systemImage: "exclamationmark.triangle")
-                    .foregroundStyle(.red)
-                Text(msg)
-                    .font(.system(.body, design: .monospaced))
-                    .textSelection(.enabled)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .foregroundColor(.red)
+                SelectableText(text: msg, isMonospaced: true)
+                    .frame(maxWidth: .infinity, minHeight: 60, maxHeight: 140)
             }
         }
     }
@@ -382,7 +414,7 @@ struct UpdateSheetView: View {
         case .installing:
             Text("Blog Manager will relaunch.")
                 .font(.caption)
-                .foregroundStyle(.secondary)
+                .foregroundColor(.secondary)
         case .error:
             Button("Close") { updater.dismiss() }
                 .keyboardShortcut(.defaultAction)

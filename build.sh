@@ -9,12 +9,34 @@ APP_DISPLAY="Blog Manager"
 BUILD_DIR="build"
 APP_BUNDLE="${BUILD_DIR}/${APP_DISPLAY}.app"
 CONFIG="${CONFIG:-release}"
+# Target Intel Macs running macOS 11.4+. Set ARCH=arm64 or ARCH=universal to
+# override; "universal" builds both arches and lipos them together.
+ARCH="${ARCH:-x86_64}"
 
-echo "==> swift build --configuration ${CONFIG}"
-swift build --configuration "${CONFIG}"
+swift_build() {
+    local arch="$1"
+    swift build \
+        --configuration "${CONFIG}" \
+        --triple "${arch}-apple-macosx11.0" \
+        "${@:2}"
+}
 
-BIN_PATH="$(swift build --configuration "${CONFIG}" --show-bin-path)"
-EXE="${BIN_PATH}/${APP_NAME}"
+if [[ "${ARCH}" == "universal" ]]; then
+    echo "==> swift build universal (x86_64 + arm64)"
+    swift_build x86_64
+    X86_EXE="$(swift_build x86_64 --show-bin-path)/${APP_NAME}"
+    swift_build arm64
+    ARM_EXE="$(swift_build arm64 --show-bin-path)/${APP_NAME}"
+    MERGED_DIR="${BUILD_DIR}/universal"
+    mkdir -p "${MERGED_DIR}"
+    EXE="${MERGED_DIR}/${APP_NAME}"
+    lipo -create -output "${EXE}" "${X86_EXE}" "${ARM_EXE}"
+else
+    echo "==> swift build ${ARCH} (macOS 11.0+)"
+    swift_build "${ARCH}"
+    BIN_PATH="$(swift_build "${ARCH}" --show-bin-path)"
+    EXE="${BIN_PATH}/${APP_NAME}"
+fi
 
 if [[ ! -x "${EXE}" ]]; then
     echo "error: built executable not found at ${EXE}" >&2

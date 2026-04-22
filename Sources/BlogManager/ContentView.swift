@@ -33,7 +33,7 @@ struct ContentView: View {
                 tutorBar
                     .padding(.horizontal, 12)
                     .padding(.vertical, 8)
-                    .background(Color(nsColor: .underPageBackgroundColor))
+                    .background(Color(NSColor.underPageBackgroundColor))
             }
             Divider()
             postList
@@ -44,15 +44,31 @@ struct ContentView: View {
         }
         .sheet(isPresented: $showCommitSheet) { commitSheet }
         .sheet(isPresented: $showNewPostSheet) { newPostSheet }
-        .alert("Publish", isPresented: .constant(publishResult != nil), presenting: publishResult) { _ in
-            Button("OK") { publishResult = nil }
-        } message: { msg in
-            Text(msg)
+        .alert(isPresented: Binding(
+            get: { publishResult != nil },
+            set: { if !$0 { publishResult = nil } }
+        )) {
+            Alert(
+                title: Text("Publish"),
+                message: Text(publishResult ?? ""),
+                dismissButton: .default(Text("OK"))
+            )
         }
-        .alert("Couldn't create post", isPresented: .constant(newPostError != nil), presenting: newPostError) { _ in
-            Button("OK") { newPostError = nil }
-        } message: { msg in
-            Text(msg)
+        .background(newPostErrorAlert)
+    }
+
+    // macOS 11's `.alert` modifier only accepts one alert per view; stack a
+    // second one via a hidden background view.
+    private var newPostErrorAlert: some View {
+        Color.clear.alert(isPresented: Binding(
+            get: { newPostError != nil },
+            set: { if !$0 { newPostError = nil } }
+        )) {
+            Alert(
+                title: Text("Couldn't create post"),
+                message: Text(newPostError ?? ""),
+                dismissButton: .default(Text("OK"))
+            )
         }
     }
 
@@ -72,6 +88,7 @@ struct ContentView: View {
             } label: {
                 Label("Edit", systemImage: "pencil")
             }
+            .keyboardShortcut(.return, modifiers: [.command])
             .disabled(selection == nil)
             .cliHint(title: "Edit selected post", command: editCommand())
 
@@ -107,9 +124,8 @@ struct ContentView: View {
                 tutor.isEnabled.toggle()
             } label: {
                 Label("CLI Tutor", systemImage: "terminal")
+                    .foregroundColor(tutor.isEnabled ? .orange : .primary)
             }
-            .buttonStyle(.bordered)
-            .tint(tutor.isEnabled ? .orange : .secondary)
             .help("Show the command-line equivalent for controls you hover")
 
             Button {
@@ -134,27 +150,23 @@ struct ContentView: View {
     private var tutorBar: some View {
         HStack(alignment: .top, spacing: 10) {
             Image(systemName: "terminal")
-                .foregroundStyle(.orange)
+                .foregroundColor(.orange)
                 .padding(.top, 2)
             VStack(alignment: .leading, spacing: 4) {
                 Text(tutor.currentTitle.isEmpty
                      ? "Hover any highlighted control to see the CLI equivalent."
                      : tutor.currentTitle)
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundColor(.secondary)
                 HStack(alignment: .top, spacing: 8) {
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        Text(tutor.currentCommand.isEmpty ? " " : tutor.currentCommand)
-                            .font(.system(.body, design: .monospaced))
-                            .textSelection(.enabled)
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 6)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                    .frame(minHeight: 32)
+                    SelectableText(
+                        text: tutor.currentCommand.isEmpty ? " " : tutor.currentCommand,
+                        isMonospaced: true
+                    )
+                    .frame(minHeight: 40, maxHeight: 90)
                     .background(
                         RoundedRectangle(cornerRadius: 6)
-                            .fill(Color(nsColor: .textBackgroundColor))
+                            .fill(Color(NSColor.textBackgroundColor))
                     )
                     .overlay(
                         RoundedRectangle(cornerRadius: 6)
@@ -177,37 +189,61 @@ struct ContentView: View {
         Group {
             if let err = store.loadError {
                 VStack(spacing: 12) {
-                    Text(err).foregroundStyle(.secondary)
+                    Text(err).foregroundColor(.secondary)
                     Button("Open Preferences") {
-                        NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
+                        NSApp.sendAction(
+                            Selector(("showPreferencesWindow:")),
+                            to: nil,
+                            from: nil
+                        )
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if store.posts.isEmpty {
                 Text("No posts found in content/posts.")
-                    .foregroundStyle(.secondary)
+                    .foregroundColor(.secondary)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                Table(store.posts, selection: $selection) {
-                    TableColumn("Date") { post in
+                postListContent
+            }
+        }
+    }
+
+    private var postListContent: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 0) {
+                Text("Date")
+                    .frame(width: 120, alignment: .leading)
+                Text("Title")
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                Text("Author")
+                    .frame(width: 180, alignment: .leading)
+            }
+            .font(.caption.weight(.semibold))
+            .foregroundColor(.secondary)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 4)
+            Divider()
+            List(selection: $selection) {
+                ForEach(store.posts) { post in
+                    HStack(spacing: 0) {
                         Text(dateLabel(for: post))
-                            .monospacedDigit()
-                    }
-                    .width(min: 100, ideal: 120, max: 160)
-                    TableColumn("Title", value: \.title)
-                    TableColumn("Author") { post in
+                            .font(.system(.body, design: .monospaced))
+                            .frame(width: 120, alignment: .leading)
+                            .foregroundColor(.secondary)
+                        Text(post.title)
+                            .lineLimit(1)
+                            .frame(maxWidth: .infinity, alignment: .leading)
                         Text(post.author ?? "")
-                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .frame(width: 180, alignment: .leading)
+                            .foregroundColor(.secondary)
                     }
-                    .width(min: 80, ideal: 140, max: 240)
-                }
-                .contextMenu(forSelectionType: Post.ID.self) { ids in
-                    if ids.count == 1 {
-                        Button("Edit") { edit(postID: ids.first!) }
-                        Button("Reveal in Finder") { revealInFinder(postID: ids.first!) }
+                    .tag(post.id)
+                    .contextMenu {
+                        Button("Edit") { edit(postID: post.id) }
+                        Button("Reveal in Finder") { revealInFinder(postID: post.id) }
                     }
-                } primaryAction: { ids in
-                    if let id = ids.first { edit(postID: id) }
                 }
             }
         }
@@ -220,11 +256,11 @@ struct ContentView: View {
                 .frame(width: 8, height: 8)
             Text(statusText)
                 .font(.caption)
-                .foregroundStyle(.secondary)
+                .foregroundColor(.secondary)
             Spacer()
             Text("\(store.posts.count) post\(store.posts.count == 1 ? "" : "s")")
                 .font(.caption)
-                .foregroundStyle(.secondary)
+                .foregroundColor(.secondary)
         }
     }
 
@@ -234,10 +270,9 @@ struct ContentView: View {
                 .font(.headline)
             Text("Creates \(previewNewPostPath(for: newPostTitle)) and opens it in \(prefs.editorApp).")
                 .font(.caption)
-                .foregroundStyle(.secondary)
-            TextField("Title", text: $newPostTitle)
-                .textFieldStyle(.roundedBorder)
-                .onSubmit { createNewPost() }
+                .foregroundColor(.secondary)
+            TextField("Title", text: $newPostTitle, onCommit: { createNewPost() })
+                .textFieldStyle(RoundedBorderTextFieldStyle())
             HStack {
                 Spacer()
                 Button("Cancel") { showNewPostSheet = false }
@@ -257,9 +292,9 @@ struct ContentView: View {
                 .font(.headline)
             Text("This will `git add` modified posts in content/posts, commit, and push.")
                 .font(.caption)
-                .foregroundStyle(.secondary)
+                .foregroundColor(.secondary)
             TextField("Commit message", text: $commitMessage)
-                .textFieldStyle(.roundedBorder)
+                .textFieldStyle(RoundedBorderTextFieldStyle())
             HStack {
                 Spacer()
                 Button("Cancel") { showCommitSheet = false }

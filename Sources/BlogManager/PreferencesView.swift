@@ -7,31 +7,31 @@ struct PreferencesView: View {
 
     var body: some View {
         Form {
-            Section("Blog") {
+            Section(header: Text("Blog")) {
                 HStack {
                     TextField("Repo path", text: $prefs.repoPath)
-                        .textFieldStyle(.roundedBorder)
+                        .textFieldStyle(RoundedBorderTextFieldStyle())
                     Button("Choose…") { pickRepo() }
                 }
                 if let dir = prefs.postsDirectory {
                     Text("Posts: \(dir.path)")
                         .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .foregroundColor(.secondary)
                 }
             }
 
-            Section("Editor") {
+            Section(header: Text("Editor")) {
                 TextField("Editor app name", text: $prefs.editorApp)
-                    .textFieldStyle(.roundedBorder)
+                    .textFieldStyle(RoundedBorderTextFieldStyle())
                 Text("Used with `open -a`. Default: MarkEdit.")
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundColor(.secondary)
             }
 
-            Section("Hugo") {
+            Section(header: Text("Hugo")) {
                 HStack {
                     TextField("Hugo binary", text: $prefs.hugoPath)
-                        .textFieldStyle(.roundedBorder)
+                        .textFieldStyle(RoundedBorderTextFieldStyle())
                     Button("Choose…") { pickHugo() }
                 }
             }
