@@ -55,6 +55,16 @@ if [[ ! -d "${APP_PATH}" ]]; then
     exit 1
 fi
 
+# Stamp the bundled Info.plist with this release's version so the in-app
+# auto-updater can compare against future releases. The repo's plist is left
+# alone; only the built bundle gets the tagged version.
+PLIST_VERSION="${VERSION#v}"
+echo "==> stamping CFBundleShortVersionString = ${PLIST_VERSION}"
+/usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString ${PLIST_VERSION}" \
+    "${APP_PATH}/Contents/Info.plist"
+# Re-sign ad-hoc after modifying the bundle, otherwise the signature is invalidated.
+codesign --force --deep --sign - "${APP_PATH}" >/dev/null 2>&1 || true
+
 echo "==> zipping to ${ZIP_PATH}"
 rm -f "${ZIP_PATH}"
 # ditto preserves macOS metadata (extended attrs, codesign) better than /usr/bin/zip
