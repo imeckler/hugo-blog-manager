@@ -5,6 +5,7 @@ struct BlogManagerApp: App {
     @StateObject private var prefs = Preferences.shared
     @StateObject private var store = PostStore()
     @StateObject private var hugo = HugoService()
+    @StateObject private var tutor = CLITutor()
 
     var body: some Scene {
         WindowGroup("Blog Manager") {
@@ -12,6 +13,7 @@ struct BlogManagerApp: App {
                 .environmentObject(prefs)
                 .environmentObject(store)
                 .environmentObject(hugo)
+                .environmentObject(tutor)
                 .frame(minWidth: 720, minHeight: 460)
                 .onAppear { store.reload(repoPath: prefs.repoPath) }
         }
